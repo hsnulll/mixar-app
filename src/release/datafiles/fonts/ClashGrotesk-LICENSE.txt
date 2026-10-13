@@ -1,6 +1,6 @@
-# SPDX-FileCopyrightText: 2026 Adeveda Enterprises Private Limited
+# SPDX-FileCopyrightText: Indian Type Foundry
 #
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: LicenseRef-ITF-FFL
 
 Fontshare
 

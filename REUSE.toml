@@ -176,6 +176,6 @@ SPDX-FileCopyrightText = "KIRI Engine contributors"
 SPDX-License-Identifier = "Apache-2.0"
 
 [[annotations]]
-path = "src/release/datafiles/fonts/ClashGrotesk-Regular.otf"
+path = "src/release/datafiles/fonts/ClashGrotesk-LICENSE.txt"
 SPDX-FileCopyrightText = "Indian Type Foundry"
 SPDX-License-Identifier = "LicenseRef-ITF-FFL"
