@@ -1,4 +1,8 @@
 
+# SPDX-FileCopyrightText: 2026 Adeveda Enterprises Private Limited
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 name: Build Mixar Intel macOS
 
 on:
@@ -37,24 +41,45 @@ jobs:
       - name: Initialize Blender dependencies
         run: make init
 
+      - name: Detect Intel Blender dependency support
+        id: intel-support
+        run: |
+          if [ -d "upstream/lib/macos_x64/.git" ]; then
+            echo "supported=true" >> "$GITHUB_OUTPUT"
+            echo "Intel dependency bundle is available."
+          else
+            echo "supported=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping Intel DMG build: Blender 5.x no longer ships upstream/lib/macos_x64 precompiled dependencies."
+          fi
+
       - name: Check available disk
+        if: steps.intel-support.outputs.supported == 'true'
         run: df -h /
 
       - name: Build Mixar
+        if: steps.intel-support.outputs.supported == 'true'
         run: make build
 
       - name: Package macOS DMG
+        if: steps.intel-support.outputs.supported == 'true'
         run: cmake --build build/Prod --target package --config Release
 
       - name: Inspect package
+        if: steps.intel-support.outputs.supported == 'true'
         run: |
           find build/Prod -type f -name '*.dmg' -print
           df -h /
 
       - name: Upload Intel DMG
+        if: steps.intel-support.outputs.supported == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: Mixar-Intel-macOS
           path: build/Prod/*.dmg
           if-no-files-found: error
           retention-days: 7
+
+      - name: Intel build skipped summary
+        if: steps.intel-support.outputs.supported != 'true'
+        run: |
+          echo "Intel DMG build was skipped because upstream/lib/macos_x64 is unavailable for the pinned Blender version."
