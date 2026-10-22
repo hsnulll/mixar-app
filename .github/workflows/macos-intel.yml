@@ -1,4 +1,3 @@
-
 # SPDX-FileCopyrightText: 2026 Adeveda Enterprises Private Limited
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
@@ -21,65 +20,108 @@ jobs:
       MIXAR_ENV: Prod
       BUILD_CORES: "3"
       MIXAR_CUDA: "0"
+      BLENDER_SRC: ${{ github.workspace }}/upstream
+      INTEL_LIBDIR: ${{ github.workspace }}/lib-macos-x64
+      GH_TOKEN: ${{ github.token }}
+      INTEL_DEPS_REPO: lastowl/intel-blender-5
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: false
 
       - name: Verify native Intel toolchain
         run: |
-          uname -m
+          set -euo pipefail
           test "$(uname -m)" = "x86_64"
           sw_vers
-          xcode-select -p
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-path
           df -h /
 
-      - name: Initialize Blender dependencies
+      - name: Initialize pinned Blender source
         run: make init
 
-      - name: Detect Intel Blender dependency support
-        id: intel-support
-        run: |
-          if [ -d "upstream/lib/macos_x64/.git" ]; then
-            echo "supported=true" >> "$GITHUB_OUTPUT"
-            echo "Intel dependency bundle is available."
-          else
-            echo "supported=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Skipping Intel DMG build: Blender 5.x no longer ships upstream/lib/macos_x64 precompiled dependencies."
-          fi
+      # The fetched release is already built from this exact Blender
+      # dependency manifest with the reference project's dependency fixes.
+      # No source patch is applied here: the optional EEVEE workaround is a
+      # runtime behavior change, not a prerequisite for producing a DMG.
 
-      - name: Check available disk
-        if: steps.intel-support.outputs.supported == 'true'
-        run: df -h /
+      - name: Fetch matching Intel dependency stack
+        env:
+          DEPS_INSTALL_DIR: ${{ github.workspace }}/lib-macos-x64
+          REPO: ${{ env.INTEL_DEPS_REPO }}
+        run: ./scripts/intel/fetch-deps.sh
+
+      - name: Verify dependency architecture
+        run: |
+          set -euo pipefail
+          test -d "$INTEL_LIBDIR"
+          test -e "$INTEL_LIBDIR/.git"
+          matches=0
+          while IFS= read -r -d '' item; do
+            details="$(file -b "$item")"
+            case "$details" in
+              *Mach-O*)
+                echo "$details"
+                echo "$details" | grep -q 'x86_64' || {
+                  echo "non-Intel dependency: $item ($details)" >&2
+                  exit 1
+                }
+                matches=$((matches + 1))
+                ;;
+            esac
+          done < <(find "$INTEL_LIBDIR" -type f \( -name '*.dylib' -o -name '*.a' \) -print0)
+          test "$matches" -gt 0
 
       - name: Build Mixar
-        if: steps.intel-support.outputs.supported == 'true'
+        env:
+          LIBDIR: ${{ github.workspace }}/lib-macos-x64
         run: make build
 
+      - name: Validate Intel Mixar.app
+        run: |
+          set -euo pipefail
+          app="$GITHUB_WORKSPACE/build/Prod/bin/Mixar.app"
+          executable="$app/Contents/MacOS/Mixar"
+          test -d "$app"
+          test -x "$executable"
+          test "$(lipo -archs "$executable")" = "x86_64"
+          file "$executable" | grep -q 'x86_64'
+          machos=0
+          while IFS= read -r -d '' item; do
+            details="$(file -b "$item")"
+            case "$details" in
+              *Mach-O*)
+                echo "$details"
+                echo "$details" | grep -q 'x86_64' || {
+                  echo "non-Intel bundle binary: $item ($details)" >&2
+                  exit 1
+                }
+                machos=$((machos + 1))
+                ;;
+            esac
+          done < <(find "$app" -type f -print0)
+          test "$machos" -gt 0
+
       - name: Package macOS DMG
-        if: steps.intel-support.outputs.supported == 'true'
         run: cmake --build build/Prod --target package --config Release
 
-      - name: Inspect package
-        if: steps.intel-support.outputs.supported == 'true'
+      - name: Verify non-empty DMG
         run: |
-          find build/Prod -type f -name '*.dmg' -print
+          set -euo pipefail
+          dmg="$(find "$GITHUB_WORKSPACE/build/Prod" -type f -name '*.dmg' -size +0c -print -quit)"
+          test -n "$dmg"
+          echo "MIXAR_DMG=$dmg" >> "$GITHUB_ENV"
+          ls -lh "$dmg"
           df -h /
 
       - name: Upload Intel DMG
-        if: steps.intel-support.outputs.supported == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: Mixar-Intel-macOS
-          path: build/Prod/*.dmg
+          path: ${{ env.MIXAR_DMG }}
           if-no-files-found: error
           retention-days: 7
-
-      - name: Intel build skipped summary
-        if: steps.intel-support.outputs.supported != 'true'
-        run: |
-          echo "Intel DMG build was skipped because upstream/lib/macos_x64 is unavailable for the pinned Blender version."

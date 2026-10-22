@@ -34,6 +34,20 @@ BLENDER_BUILD_ENV="Release"
 # Define build directory for this environment
 BUILD_ENV_DIR="${BUILD_DIR}/${MIXAR_ENV}"
 
+# Blender's Apple platform files require LIBDIR to look like a checkout. The
+# Intel dependency bundle is a generated tree, so create the same marker used
+# by the community Intel build before configuring CMake.
+if [[ "$PLATFORM" == "macOS" && -n "${LIBDIR:-}" ]]; then
+    if [[ ! -d "$LIBDIR" ]]; then
+        echo "Error: LIBDIR does not exist: $LIBDIR" >&2
+        exit 1
+    fi
+    if [[ ! -e "$LIBDIR/.git" ]]; then
+        echo "Marking generated dependency tree as a local checkout: $LIBDIR"
+        git -C "$LIBDIR" init -q
+    fi
+fi
+
 # Overlay Mixar sources onto source
 echo "Overlaying Mixar sources onto source..."
 "$SCRIPT_DIR/overlay.sh"
@@ -192,13 +206,27 @@ if [[ -f "$CMAKE_CACHE_FILE" ]] \
     cmake -S "$SOURCE_DIR" -B "$BUILD_ENV_DIR" "${SDK_PIN_ARGS[@]+"${SDK_PIN_ARGS[@]}"}" -UCMAKE_INSTALL_PREFIX >/dev/null
 fi
 
-# Configure with CMake (all platform logic handled in settings.sh)
+# Configure with CMake (all platform logic handled in settings.sh).
+# Intel CI supplies LIBDIR explicitly because Blender 5.x no longer ships
+# upstream/lib/macos_x64. Passing it here is essential: exporting LIBDIR alone
+# does not populate CMake's cache variable after the generated source overlay.
+CMAKE_EXTRA_ARGS=()
+if [[ -n "${LIBDIR:-}" ]]; then
+    CMAKE_EXTRA_ARGS+=("-DLIBDIR=$LIBDIR")
+fi
+if [[ "$PLATFORM" == "macOS" && "$(uname -m)" == "x86_64" ]]; then
+    CMAKE_EXTRA_ARGS+=("-DCMAKE_OSX_ARCHITECTURES=x86_64")
+fi
 echo "Configuring Mixar build - Blender: $BLENDER_BUILD_ENV, Mixar Environment: $MIXAR_ENV for $PLATFORM..."
+if [[ -n "${LIBDIR:-}" ]]; then
+    echo "Using explicit Blender dependency directory: $LIBDIR"
+fi
 cmake -C "$CMAKE_DIR/mixar_overrides.cmake" \
     $CMAKE_GENERATOR_ARGS \
     -S "$SOURCE_DIR" \
     -B "$BUILD_ENV_DIR" \
     "${SDK_PIN_ARGS[@]+"${SDK_PIN_ARGS[@]}"}" \
+    "${CMAKE_EXTRA_ARGS[@]}" \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 # Build (all platform-specific args handled in settings.sh)
