@@ -291,15 +291,10 @@ if [[ -n "$PYTHON_BIN" ]]; then
                 echo "Error: truststore installed but not importable from the embedded Python"
                 exit 1
             fi
-        elif command -v pip3 >/dev/null 2>&1; then
-            echo "Embedded pip failed, trying system pip with --target..."
-            if pip3 install --upgrade --target "$SITE_PACKAGES" -r "$REQUIREMENTS_FILE"; then
-                echo "Successfully installed Python packages using system pip"
-            else
-                echo "Warning: Failed to install Python packages from requirements file"
-            fi
         else
-            echo "Warning: No pip available, skipping Python package installation"
+            echo "Error: failed to install Python packages with the embedded Python" >&2
+            echo "Refusing a system-pip fallback: it can install extensions for the wrong Python ABI." >&2
+            exit 1
         fi
     else
         echo "Warning: Requirements file not found at: $REQUIREMENTS_FILE"
